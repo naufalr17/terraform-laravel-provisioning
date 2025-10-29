@@ -1,46 +1,43 @@
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.13.4"
 
   required_providers {
     linode = {
       source  = "linode/linode"
-      version = ">= 2.28.0"
+      version = "3.5.0"
     }
     random = {
       source  = "hashicorp/random"
-      version = ">= 3.5.1"
+      version = ">= 3.7.2"
     }
   }
 }
 
 provider "linode" {
   token = var.linode_token
+
 }
 
 resource "random_password" "root_password" {
   length  = 20
-  special = true
+  special = false
 }
 
 resource "random_password" "mysql_root_password" {
   length  = 24
-  special = true
+  special = false
 }
 
 resource "random_password" "mysql_app_password" {
   length  = 20
-  special = true
-}
-
-# Optional: register your public key in Linode profile (handy if you reuse)
-resource "linode_sshkey" "local_key" {
-  label = "terraform_provisioning_key"
-  ssh_key = var.authorized_ssh_key
+  special = false
 }
 
 # Linode Cloud Firewall: allow SSH(22), HTTP(80), HTTPS(443), deny rest
 resource "linode_firewall" "web" {
-  label = "web-allow-http-https-ssh"
+  label           = "web-allow-http-https-ssh"
+  inbound_policy  = "DROP"
+  outbound_policy = "ACCEPT"
   inbound {
     label    = "allow-ssh"
     action   = "ACCEPT"
@@ -57,6 +54,23 @@ resource "linode_firewall" "web" {
     ipv4     = ["0.0.0.0/0"]
     ipv6     = ["::/0"]
   }
+
+  inbound {
+    label    = "allow-mysql"
+    action   = "ACCEPT"
+    protocol = "TCP"
+    ports    = "3306"
+    ipv4     = ["0.0.0.0/0"]
+    ipv6     = ["::/0"]
+  }
+
+  inbound {
+    label    = "allow-icmp"
+    action   = "ACCEPT"
+    protocol = "ICMP"
+    ipv4     = ["0.0.0.0/0"]
+    ipv6     = ["::/0"]
+  }
   inbound {
     label    = "allow-https"
     action   = "ACCEPT"
@@ -66,18 +80,57 @@ resource "linode_firewall" "web" {
     ipv6     = ["::/0"]
   }
   outbound {
-    label    = "allow-all-out"
+    label    = "allow-ssh-out"
     action   = "ACCEPT"
-    protocol = "ALL"
+    protocol = "TCP"
+    ports    = "22"
     ipv4     = ["0.0.0.0/0"]
     ipv6     = ["::/0"]
   }
+
+  outbound {
+    label    = "allow-http-out"
+    action   = "ACCEPT"
+    protocol = "TCP"
+    ports    = "80"
+    ipv4     = ["0.0.0.0/0"]
+    ipv6     = ["::/0"]
+  }
+
+  outbound {
+    label    = "allow-https-out"
+    action   = "ACCEPT"
+    protocol = "TCP"
+    ports    = "443"
+    ipv4     = ["0.0.0.0/0"]
+    ipv6     = ["::/0"]
+  }
+
+
+  outbound {
+    label    = "allow-icmp"
+    action   = "ACCEPT"
+    protocol = "ICMP"
+    ipv4     = ["0.0.0.0/0"]
+    ipv6     = ["::/0"]
+  }
+
+  outbound {
+    label    = "allow-mysql"
+    action   = "ACCEPT"
+    protocol = "TCP"
+    ports    = "3306"
+    ipv4     = ["0.0.0.0/0"]
+    ipv6     = ["::/0"]
+  }
+
   tags = var.tags
+  linodes = [linode_instance.web.id]
 }
 
 # Render cloud-init with secrets & config
 locals {
-  cloud_init = templatefile("${path.module}/cloud-init.yaml.tftpl", {
+  cloud_init = base64encode(templatefile("${path.module}/cloud-init.yaml.tftpl", {
     authorized_ssh_key     = var.authorized_ssh_key
     root_password          = random_password.root_password.result
     mysql_root_password    = random_password.mysql_root_password.result
@@ -85,7 +138,7 @@ locals {
     mysql_db_name          = var.mysql_db_name
     mysql_app_user         = var.mysql_app_user
     app_name               = var.app_name
-  })
+  }))
 }
 
 resource "linode_instance" "web" {
@@ -97,11 +150,9 @@ resource "linode_instance" "web" {
   authorized_keys = [var.authorized_ssh_key]
   tags            = var.tags
 
-  # Attach firewall
-  firewall_id = linode_firewall.web.id
-
   # cloud-init user data
   metadata {
     user_data = local.cloud_init
   }
+  
 }

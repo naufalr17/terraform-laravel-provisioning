@@ -7,7 +7,7 @@ variable "linode_token" {
 variable "region" {
   description = "Linode region"
   type        = string
-  default     = "ap-south" # Mumbai (close to Indonesia). You can set ap-southeast if available.
+  default     = "ap-south" 
 }
 
 variable "instance_type" {
